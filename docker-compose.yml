@@ -1,0 +1,83 @@
+services:
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: bench_hub
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d bench_hub"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    networks:
+      - app-network
+
+  api:
+    build: .
+    environment:
+      PORT: "8080"
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_USER: postgres
+      DB_PASS: postgres
+      DB_NAME: bench_hub
+      DB_SSLMODE: disable
+      JWT_SECRET: dev-secret
+      LOCUST_HOST: http://api:8080
+      REPORTS_DIR: /app/reports
+      MIGRATIONS_PATH: /app/migrations
+      AUTO_MIGRATE: "true"
+      RUNNER_URL: http://runner:8081
+    ports:
+      - "8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - reports:/app/reports
+    networks:
+      - app-network
+
+  web:
+    build: ./web
+    environment:
+      VITE_API_BASE_URL: ""
+      VITE_API_PROXY_TARGET: http://api:8080
+    ports:
+      - "5173:5173"
+    depends_on:
+      - api
+    networks:
+      - app-network
+
+  runner:
+    build:
+      context: .
+      dockerfile: Dockerfile.runner
+    environment:
+      RUNNER_PORT: "8081"
+      LOCUST_HOST: http://api:8080
+      REPORTS_DIR: /app/reports
+    depends_on:
+      - api
+    volumes:
+      - reports:/app/reports
+    networks:
+      - app-network
+
+volumes:
+  pgdata:
+  reports:
+
+networks:
+  app-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
