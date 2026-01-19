@@ -61,7 +61,7 @@
               <td><span class="status" :class="task.status">{{ task.status }}</span></td>
               <td>{{ formatDate(task.created_at) }}</td>
               <td>
-                <button class="ghost" type="button" @click="runTask(task.id)">运行</button>
+                <button class="ghost" type="button" @click="openRunModal(task)">运行</button>
                 <button class="ghost" type="button" @click="stopTask(task.id)">停止</button>
               </td>
             </tr>
@@ -70,6 +70,29 @@
             </tr>
           </tbody>
         </table>
+      </div>
+    </div>
+
+    <div v-if="showRunModal" class="modal-mask" @click.self="closeRunModal">
+      <div class="modal">
+        <div class="modal-head">
+          <div>
+            <h4>运行任务</h4>
+            <p class="muted">任务：{{ runningTaskName || '未命名' }}</p>
+          </div>
+          <button class="ghost" type="button" @click="closeRunModal">关闭</button>
+        </div>
+        <div class="modal-body">
+          <label>
+            目标地址
+            <input v-model.trim="runTargetHost" type="text" placeholder="https://api.example.com" />
+            <span class="hint">留空则使用默认 LOCUST_HOST</span>
+          </label>
+        </div>
+        <div class="modal-actions">
+          <button class="ghost" type="button" @click="closeRunModal">取消</button>
+          <button class="primary" type="button" @click="confirmRun">开始运行</button>
+        </div>
       </div>
     </div>
   </section>
@@ -83,6 +106,11 @@ const tasks = ref([])
 const error = ref('')
 const showForm = ref(false)
 const scriptOptions = ref([])
+
+const showRunModal = ref(false)
+const runTargetHost = ref('')
+const runningTaskId = ref('')
+const runningTaskName = ref('')
 
 const form = reactive({
   name: '',
@@ -161,9 +189,27 @@ async function stopTask(id) {
   }
 }
 
-async function runTask(id) {
+function openRunModal(task) {
+  runningTaskId.value = task.id
+  runningTaskName.value = task.name || ''
+  runTargetHost.value = ''
+  showRunModal.value = true
+}
+
+function closeRunModal() {
+  showRunModal.value = false
+  runningTaskId.value = ''
+  runningTaskName.value = ''
+  runTargetHost.value = ''
+}
+
+async function confirmRun() {
+  if (!runningTaskId.value) return
+  const trimmedHost = runTargetHost.value.trim()
+  const payload = trimmedHost ? { target_host: trimmedHost } : undefined
   try {
-    await api.post(`/api/v1/tasks/${id}/run`)
+    await api.post(`/api/v1/tasks/${runningTaskId.value}/run`, payload)
+    closeRunModal()
     await load()
   } catch (err) {
     error.value = '运行任务失败'

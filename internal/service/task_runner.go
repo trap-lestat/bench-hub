@@ -37,7 +37,7 @@ func NewTaskRunner(tasks repository.TaskRepository, scripts repository.ScriptRep
 	}
 }
 
-func (r *TaskRunner) Run(ctx context.Context, taskID string) (*model.Task, error) {
+func (r *TaskRunner) Run(ctx context.Context, taskID, targetHost string) (*model.Task, error) {
 	task, err := r.tasks.GetByID(ctx, taskID)
 	if err != nil {
 		if err == repository.ErrNotFound {
@@ -66,18 +66,18 @@ func (r *TaskRunner) Run(ctx context.Context, taskID string) (*model.Task, error
 		return nil, err
 	}
 
-	go r.execute(task, script)
+	go r.execute(task, script, targetHost)
 
 	return task, nil
 }
 
-func (r *TaskRunner) execute(task *model.Task, script *model.Script) {
+func (r *TaskRunner) execute(task *model.Task, script *model.Script, targetHost string) {
 	runCtx := context.Background()
 	finishTime := time.Now()
 	status := TaskStatusFinished
 
 	if r.runnerURL != "" {
-		reports, runStatus, err := r.runRemote(task, script)
+		reports, runStatus, err := r.runRemote(task, script, targetHost)
 		if err != nil {
 			status = TaskStatusFailed
 		} else {
@@ -93,7 +93,7 @@ func (r *TaskRunner) execute(task *model.Task, script *model.Script) {
 				})
 			}
 		}
-	} else if err := r.runLocust(task, script); err != nil {
+	} else if err := r.runLocust(task, script, targetHost); err != nil {
 		status = TaskStatusFailed
 	}
 
@@ -108,6 +108,7 @@ type runnerRequest struct {
 	UsersCount      int    `json:"users_count"`
 	SpawnRate       int    `json:"spawn_rate"`
 	DurationSeconds int    `json:"duration_seconds"`
+	TargetHost      string `json:"target_host"`
 	ScriptContent   string `json:"script_content"`
 }
 
@@ -122,7 +123,7 @@ type runnerResponse struct {
 	Reports []runnerReport `json:"reports"`
 }
 
-func (r *TaskRunner) runRemote(task *model.Task, script *model.Script) ([]runnerReport, string, error) {
+func (r *TaskRunner) runRemote(task *model.Task, script *model.Script, targetHost string) ([]runnerReport, string, error) {
 	client := &http.Client{Timeout: time.Duration(task.DurationSeconds+30) * time.Second}
 	reqBody := runnerRequest{
 		TaskID:          task.ID,
@@ -130,6 +131,7 @@ func (r *TaskRunner) runRemote(task *model.Task, script *model.Script) ([]runner
 		UsersCount:      task.UsersCount,
 		SpawnRate:       task.SpawnRate,
 		DurationSeconds: task.DurationSeconds,
+		TargetHost:      targetHost,
 		ScriptContent:   script.Content,
 	}
 
@@ -156,7 +158,7 @@ func (r *TaskRunner) runRemote(task *model.Task, script *model.Script) ([]runner
 	return out.Reports, out.Status, nil
 }
 
-func (r *TaskRunner) runLocust(task *model.Task, script *model.Script) error {
+func (r *TaskRunner) runLocust(task *model.Task, script *model.Script, targetHost string) error {
 	timestamp := time.Now().Format("20060102150405")
 	reportDir := filepath.Join(r.reportsDir, fmt.Sprintf("task_%s_%s", task.ID, timestamp))
 	if err := os.MkdirAll(reportDir, 0o755); err != nil {
@@ -171,6 +173,11 @@ func (r *TaskRunner) runLocust(task *model.Task, script *model.Script) error {
 	csvPrefix := filepath.Join(reportDir, "report")
 	htmlPath := filepath.Join(reportDir, "report.html")
 
+	host := r.locustHost
+	if targetHost != "" {
+		host = targetHost
+	}
+
 	cmd := exec.Command(
 		r.locustBin,
 		"-f", scriptPath,
@@ -178,7 +185,7 @@ func (r *TaskRunner) runLocust(task *model.Task, script *model.Script) error {
 		"-u", fmt.Sprintf("%d", task.UsersCount),
 		"-r", fmt.Sprintf("%d", task.SpawnRate),
 		"--run-time", fmt.Sprintf("%ds", task.DurationSeconds),
-		"--host", r.locustHost,
+		"--host", host,
 		"--csv", csvPrefix,
 		"--html", htmlPath,
 	)

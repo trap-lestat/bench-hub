@@ -17,6 +17,7 @@ type runRequest struct {
 	UsersCount      int    `json:"users_count"`
 	SpawnRate       int    `json:"spawn_rate"`
 	DurationSeconds int    `json:"duration_seconds"`
+	TargetHost      string `json:"target_host"`
 	ScriptContent   string `json:"script_content"`
 }
 
@@ -68,6 +69,11 @@ func main() {
 		csvPrefix := filepath.Join(reportDir, "report")
 		htmlPath := filepath.Join(reportDir, "report.html")
 
+		targetHost := locustHost
+		if req.TargetHost != "" {
+			targetHost = req.TargetHost
+		}
+
 		cmd := exec.Command(
 			locustBin,
 			"-f", scriptPath,
@@ -75,7 +81,7 @@ func main() {
 			"-u", fmt.Sprintf("%d", req.UsersCount),
 			"-r", fmt.Sprintf("%d", req.SpawnRate),
 			"--run-time", fmt.Sprintf("%ds", req.DurationSeconds),
-			"--host", locustHost,
+			"--host", targetHost,
 			"--csv", csvPrefix,
 			"--html", htmlPath,
 		)
