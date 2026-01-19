@@ -1,0 +1,35 @@
+# Frontend build artifacts
+web/dist/
+web/node_modules/
+web/.vite/
+
+# Go build artifacts
+bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+coverage/
+coverage.out
+
+# Locust/reports output
+reports/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Env/log/temp
+.env
+.env.*
+!.env.example
+*.log
+tmp/
+
+# Editor/OS
+.DS_Store
+.idea/
+.vscode/
