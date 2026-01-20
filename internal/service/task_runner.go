@@ -4,11 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync"
+	"syscall"
 	"time"
 
 	"bench-hub/internal/model"
@@ -23,6 +26,13 @@ type TaskRunner struct {
 	locustBin  string
 	locustHost string
 	runnerURL  string
+	runningMu  sync.Mutex
+	running    map[string]*runningCommand
+}
+
+type runningCommand struct {
+	cmd     *exec.Cmd
+	stopped bool
 }
 
 func NewTaskRunner(tasks repository.TaskRepository, scripts repository.ScriptRepository, reports repository.ReportRepository, reportsDir, locustBin, locustHost, runnerURL string) *TaskRunner {
@@ -34,6 +44,7 @@ func NewTaskRunner(tasks repository.TaskRepository, scripts repository.ScriptRep
 		locustBin:  locustBin,
 		locustHost: locustHost,
 		runnerURL:  runnerURL,
+		running:    make(map[string]*runningCommand),
 	}
 }
 
@@ -71,6 +82,110 @@ func (r *TaskRunner) Run(ctx context.Context, taskID, targetHost string) (*model
 	return task, nil
 }
 
+func (r *TaskRunner) Stop(ctx context.Context, taskID string) (*model.Task, error) {
+	task, err := r.tasks.GetByID(ctx, taskID)
+	if err != nil {
+		if err == repository.ErrNotFound {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+
+	if task.Status == TaskStatusFinished || task.Status == TaskStatusFailed || task.Status == TaskStatusStopped {
+		return task, nil
+	}
+
+	if r.runnerURL != "" {
+		if err := r.stopRemote(taskID); err != nil {
+			return nil, err
+		}
+	} else {
+		_ = r.stopLocal(taskID)
+	}
+
+	now := time.Now()
+	task.Status = TaskStatusStopped
+	if task.StartedAt == nil {
+		task.StartedAt = &now
+	}
+	task.FinishedAt = &now
+	if err := r.tasks.Update(ctx, task); err != nil {
+		if err == repository.ErrNotFound {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+
+	return task, nil
+}
+
+func (r *TaskRunner) setRunning(taskID string, cmd *exec.Cmd) {
+	r.runningMu.Lock()
+	r.running[taskID] = &runningCommand{cmd: cmd}
+	r.runningMu.Unlock()
+}
+
+func (r *TaskRunner) clearRunning(taskID string) (stopped bool) {
+	r.runningMu.Lock()
+	entry := r.running[taskID]
+	if entry != nil {
+		stopped = entry.stopped
+		delete(r.running, taskID)
+	}
+	r.runningMu.Unlock()
+	return stopped
+}
+
+func (r *TaskRunner) markStopped(taskID string) *exec.Cmd {
+	r.runningMu.Lock()
+	entry := r.running[taskID]
+	var cmd *exec.Cmd
+	if entry != nil {
+		entry.stopped = true
+		cmd = entry.cmd
+	}
+	r.runningMu.Unlock()
+	return cmd
+}
+
+func (r *TaskRunner) stopLocal(taskID string) error {
+	cmd := r.markStopped(taskID)
+	if cmd == nil || cmd.Process == nil {
+		return nil
+	}
+	if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
+		_ = cmd.Process.Kill()
+	}
+	return nil
+}
+
+func (r *TaskRunner) stopRemote(taskID string) error {
+	client := &http.Client{Timeout: 10 * time.Second}
+	body, err := json.Marshal(map[string]string{"task_id": taskID})
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequest(http.MethodPost, r.runnerURL+"/stop", bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return nil
+	}
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("runner stop status %d", resp.StatusCode)
+	}
+	return nil
+}
+
 func (r *TaskRunner) execute(task *model.Task, script *model.Script, targetHost string) {
 	runCtx := context.Background()
 	finishTime := time.Now()
@@ -83,6 +198,8 @@ func (r *TaskRunner) execute(task *model.Task, script *model.Script, targetHost 
 		} else {
 			if runStatus == "failed" {
 				status = TaskStatusFailed
+			} else if runStatus == "stopped" {
+				status = TaskStatusStopped
 			}
 			for _, report := range reports {
 				_ = r.reports.Create(runCtx, &model.Report{
@@ -94,7 +211,11 @@ func (r *TaskRunner) execute(task *model.Task, script *model.Script, targetHost 
 			}
 		}
 	} else if err := r.runLocust(task, script, targetHost); err != nil {
-		status = TaskStatusFailed
+		if errors.Is(err, ErrStopped) {
+			status = TaskStatusStopped
+		} else {
+			status = TaskStatusFailed
+		}
 	}
 
 	task.Status = status
@@ -192,8 +313,12 @@ func (r *TaskRunner) runLocust(task *model.Task, script *model.Script, targetHos
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
-	if err := cmd.Run(); err != nil {
-		return err
+	r.setRunning(task.ID, cmd)
+	cmdErr := cmd.Run()
+	stopped := r.clearRunning(task.ID)
+
+	if cmdErr != nil && !stopped {
+		return cmdErr
 	}
 
 	csvStats := csvPrefix + "_stats.csv"
@@ -214,5 +339,8 @@ func (r *TaskRunner) runLocust(task *model.Task, script *model.Script, targetHos
 		FilePath: filepath.Join(relativeDir, csvFile),
 	})
 
+	if stopped {
+		return ErrStopped
+	}
 	return nil
 }

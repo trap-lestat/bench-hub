@@ -8,6 +8,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync"
+	"syscall"
 	"time"
 )
 
@@ -32,11 +34,49 @@ type runResponse struct {
 	Reports []reportInfo `json:"reports"`
 }
 
+type runningTask struct {
+	cmd     *exec.Cmd
+	stopped bool
+}
+
 func main() {
 	port := getEnv("RUNNER_PORT", "8081")
 	reportsDir := getEnv("REPORTS_DIR", "reports")
 	locustBin := getEnv("LOCUST_BIN", "locust")
 	locustHost := getEnv("LOCUST_HOST", "http://localhost:8080")
+
+	runningMu := sync.Mutex{}
+	running := map[string]*runningTask{}
+
+	markStopped := func(taskID string) *exec.Cmd {
+		runningMu.Lock()
+		entry := running[taskID]
+		var cmd *exec.Cmd
+		if entry != nil {
+			entry.stopped = true
+			cmd = entry.cmd
+		}
+		runningMu.Unlock()
+		return cmd
+	}
+
+	register := func(taskID string, cmd *exec.Cmd) {
+		runningMu.Lock()
+		running[taskID] = &runningTask{cmd: cmd}
+		runningMu.Unlock()
+	}
+
+	clear := func(taskID string) bool {
+		runningMu.Lock()
+		entry := running[taskID]
+		stopped := false
+		if entry != nil {
+			stopped = entry.stopped
+			delete(running, taskID)
+		}
+		runningMu.Unlock()
+		return stopped
+	}
 
 	http.HandleFunc("/run", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -88,7 +128,9 @@ func main() {
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 
+		register(req.TaskID, cmd)
 		runErr := cmd.Run()
+		stopped := clear(req.TaskID)
 
 		relativeDir := filepath.Base(reportDir)
 		csvFile := filepath.Base(csvPrefix + "_stats.csv")
@@ -114,12 +156,38 @@ func main() {
 			Status:  "finished",
 			Reports: reports,
 		}
-		if runErr != nil {
+		if stopped {
+			resp.Status = "stopped"
+		} else if runErr != nil {
 			resp.Status = "failed"
 		}
 
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(resp)
+	})
+
+	http.HandleFunc("/stop", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		var req struct {
+			TaskID string `json:"task_id"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.TaskID == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		cmd := markStopped(req.TaskID)
+		if cmd == nil || cmd.Process == nil {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
+			_ = cmd.Process.Kill()
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "stopped"})
 	})
 
 	log.Printf("runner listening on :%s", port)

@@ -10,7 +10,8 @@ import (
 )
 
 type TaskHandler struct {
-	tasks *service.TaskService
+	tasks  *service.TaskService
+	runner *service.TaskRunner
 }
 
 type taskCreateRequest struct {
@@ -21,8 +22,8 @@ type taskCreateRequest struct {
 	DurationSeconds int    `json:"duration_seconds" binding:"required"`
 }
 
-func NewTaskHandler(tasks *service.TaskService) *TaskHandler {
-	return &TaskHandler{tasks: tasks}
+func NewTaskHandler(tasks *service.TaskService, runner *service.TaskRunner) *TaskHandler {
+	return &TaskHandler{tasks: tasks, runner: runner}
 }
 
 func (h *TaskHandler) List(c *gin.Context) {
@@ -84,7 +85,7 @@ func (h *TaskHandler) Create(c *gin.Context) {
 
 func (h *TaskHandler) Stop(c *gin.Context) {
 	id := c.Param("id")
-	task, err := h.tasks.Stop(c.Request.Context(), id)
+	task, err := h.runner.Stop(c.Request.Context(), id)
 	if err != nil {
 		if err == service.ErrNotFound {
 			model.JSON(c, http.StatusNotFound, model.Fail(1003, "not found"))

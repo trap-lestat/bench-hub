@@ -18,7 +18,7 @@ func RegisterRoutes(router *gin.Engine, services *service.Services) {
 		authHandler := handlers.NewAuthHandler(services.Auth)
 		userHandler := handlers.NewUserHandler(services.Users)
 		scriptHandler := handlers.NewScriptHandler(services.Scripts)
-		taskHandler := handlers.NewTaskHandler(services.Tasks)
+		taskHandler := handlers.NewTaskHandler(services.Tasks, services.Runner)
 		reportHandler := handlers.NewReportHandler(services.Reports)
 		taskRunHandler := handlers.NewTaskRunHandler(services.Runner)
 		dashboardHandler := handlers.NewDashboardHandler(services.Stats)
