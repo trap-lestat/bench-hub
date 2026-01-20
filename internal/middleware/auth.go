@@ -12,14 +12,25 @@ import (
 
 func Auth(auth *service.AuthService) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		token := ""
 		header := c.GetHeader("Authorization")
-		if header == "" || !strings.HasPrefix(header, "Bearer ") {
+		if strings.HasPrefix(header, "Bearer ") {
+			token = strings.TrimPrefix(header, "Bearer ")
+		}
+		if token == "" {
+			token = c.Query("token")
+		}
+		if token == "" {
+			if cookie, err := c.Cookie("access_token"); err == nil {
+				token = cookie
+			}
+		}
+		if token == "" {
 			model.JSON(c, http.StatusUnauthorized, model.Fail(1001, "unauthorized"))
 			c.Abort()
 			return
 		}
 
-		token := strings.TrimPrefix(header, "Bearer ")
 		userID, err := auth.ValidateAccess(token)
 		if err != nil {
 			model.JSON(c, http.StatusUnauthorized, model.Fail(1001, "unauthorized"))

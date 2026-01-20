@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"database/sql"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -25,13 +26,15 @@ func (r *TaskRepo) Create(ctx context.Context, task *model.Task) error {
 	}
 
 	row := r.pool.QueryRow(ctx,
-		"INSERT INTO locust_tasks (id, name, script_id, users_count, spawn_rate, duration_seconds, status) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING created_at, updated_at",
+		"INSERT INTO locust_tasks (id, name, script_id, users_count, spawn_rate, duration_seconds, target_host, jmeter_tpm, status) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING created_at, updated_at",
 		task.ID,
 		task.Name,
 		task.ScriptID,
 		task.UsersCount,
 		task.SpawnRate,
 		task.DurationSeconds,
+		task.TargetHost,
+		task.JmeterTPM,
 		task.Status,
 	)
 
@@ -41,9 +44,11 @@ func (r *TaskRepo) Create(ctx context.Context, task *model.Task) error {
 func (r *TaskRepo) GetByID(ctx context.Context, id string) (*model.Task, error) {
 	task := &model.Task{}
 	row := r.pool.QueryRow(ctx,
-		"SELECT id, name, script_id, users_count, spawn_rate, duration_seconds, status, created_at, updated_at, started_at, finished_at FROM locust_tasks WHERE id = $1",
+		"SELECT id, name, script_id, users_count, spawn_rate, duration_seconds, target_host, jmeter_tpm, status, created_at, updated_at, started_at, finished_at FROM locust_tasks WHERE id = $1",
 		id,
 	)
+	var targetHost sql.NullString
+	var jmeterTPM sql.NullInt32
 	if err := row.Scan(
 		&task.ID,
 		&task.Name,
@@ -51,6 +56,8 @@ func (r *TaskRepo) GetByID(ctx context.Context, id string) (*model.Task, error) 
 		&task.UsersCount,
 		&task.SpawnRate,
 		&task.DurationSeconds,
+		&targetHost,
+		&jmeterTPM,
 		&task.Status,
 		&task.CreatedAt,
 		&task.UpdatedAt,
@@ -62,12 +69,19 @@ func (r *TaskRepo) GetByID(ctx context.Context, id string) (*model.Task, error) 
 		}
 		return nil, err
 	}
+	if targetHost.Valid {
+		task.TargetHost = &targetHost.String
+	}
+	if jmeterTPM.Valid {
+		value := int(jmeterTPM.Int32)
+		task.JmeterTPM = &value
+	}
 	return task, nil
 }
 
 func (r *TaskRepo) List(ctx context.Context, limit, offset int) ([]model.Task, error) {
 	rows, err := r.pool.Query(ctx,
-		"SELECT id, name, script_id, users_count, spawn_rate, duration_seconds, status, created_at, updated_at, started_at, finished_at FROM locust_tasks ORDER BY created_at DESC LIMIT $1 OFFSET $2",
+		"SELECT id, name, script_id, users_count, spawn_rate, duration_seconds, target_host, jmeter_tpm, status, created_at, updated_at, started_at, finished_at FROM locust_tasks ORDER BY created_at DESC LIMIT $1 OFFSET $2",
 		limit,
 		offset,
 	)
@@ -79,6 +93,8 @@ func (r *TaskRepo) List(ctx context.Context, limit, offset int) ([]model.Task, e
 	var tasks []model.Task
 	for rows.Next() {
 		var task model.Task
+		var targetHost sql.NullString
+		var jmeterTPM sql.NullInt32
 		if err := rows.Scan(
 			&task.ID,
 			&task.Name,
@@ -86,6 +102,8 @@ func (r *TaskRepo) List(ctx context.Context, limit, offset int) ([]model.Task, e
 			&task.UsersCount,
 			&task.SpawnRate,
 			&task.DurationSeconds,
+			&targetHost,
+			&jmeterTPM,
 			&task.Status,
 			&task.CreatedAt,
 			&task.UpdatedAt,
@@ -94,6 +112,13 @@ func (r *TaskRepo) List(ctx context.Context, limit, offset int) ([]model.Task, e
 		); err != nil {
 			return nil, err
 		}
+		if targetHost.Valid {
+			task.TargetHost = &targetHost.String
+		}
+		if jmeterTPM.Valid {
+			value := int(jmeterTPM.Int32)
+			task.JmeterTPM = &value
+		}
 		tasks = append(tasks, task)
 	}
 	return tasks, rows.Err()
@@ -101,12 +126,14 @@ func (r *TaskRepo) List(ctx context.Context, limit, offset int) ([]model.Task, e
 
 func (r *TaskRepo) Update(ctx context.Context, task *model.Task) error {
 	row := r.pool.QueryRow(ctx,
-		"UPDATE locust_tasks SET name = $1, script_id = $2, users_count = $3, spawn_rate = $4, duration_seconds = $5, status = $6, started_at = $7, finished_at = $8, updated_at = NOW() WHERE id = $9 RETURNING updated_at",
+		"UPDATE locust_tasks SET name = $1, script_id = $2, users_count = $3, spawn_rate = $4, duration_seconds = $5, target_host = $6, jmeter_tpm = $7, status = $8, started_at = $9, finished_at = $10, updated_at = NOW() WHERE id = $11 RETURNING updated_at",
 		task.Name,
 		task.ScriptID,
 		task.UsersCount,
 		task.SpawnRate,
 		task.DurationSeconds,
+		task.TargetHost,
+		task.JmeterTPM,
 		task.Status,
 		task.StartedAt,
 		task.FinishedAt,

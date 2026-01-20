@@ -24,13 +24,15 @@ func NewTaskService(repo repository.TaskRepository) *TaskService {
 	return &TaskService{repo: repo}
 }
 
-func (s *TaskService) Create(ctx context.Context, name, scriptID string, usersCount, spawnRate, durationSeconds int) (*model.Task, error) {
+func (s *TaskService) Create(ctx context.Context, name, scriptID string, usersCount, spawnRate, durationSeconds int, targetHost *string, jmeterTPM *int) (*model.Task, error) {
 	task := &model.Task{
 		Name:            name,
 		ScriptID:        scriptID,
 		UsersCount:      usersCount,
 		SpawnRate:       spawnRate,
 		DurationSeconds: durationSeconds,
+		TargetHost:      targetHost,
+		JmeterTPM:       jmeterTPM,
 		Status:          TaskStatusCreated,
 	}
 
@@ -53,6 +55,33 @@ func (s *TaskService) Get(ctx context.Context, id string) (*model.Task, error) {
 
 func (s *TaskService) List(ctx context.Context, limit, offset int) ([]model.Task, error) {
 	return s.repo.List(ctx, limit, offset)
+}
+
+func (s *TaskService) Update(ctx context.Context, id, name, scriptID string, usersCount, spawnRate, durationSeconds int, targetHost *string, jmeterTPM *int) (*model.Task, error) {
+	task, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		if err == repository.ErrNotFound {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+
+	task.Name = name
+	task.ScriptID = scriptID
+	task.UsersCount = usersCount
+	task.SpawnRate = spawnRate
+	task.DurationSeconds = durationSeconds
+	task.TargetHost = targetHost
+	task.JmeterTPM = jmeterTPM
+
+	if err := s.repo.Update(ctx, task); err != nil {
+		if err == repository.ErrNotFound {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+
+	return task, nil
 }
 
 func (s *TaskService) Stop(ctx context.Context, id string) (*model.Task, error) {

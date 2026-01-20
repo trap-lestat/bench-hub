@@ -47,6 +47,7 @@ func RegisterRoutes(router *gin.Engine, services *service.Services) {
 		protected.GET("/tasks", taskHandler.List)
 		protected.GET("/tasks/:id", taskHandler.Get)
 		protected.POST("/tasks", taskHandler.Create)
+		protected.PUT("/tasks/:id", taskHandler.Update)
 		protected.POST("/tasks/:id/stop", taskHandler.Stop)
 		protected.POST("/tasks/:id/run", taskRunHandler.Run)
 
@@ -54,6 +55,7 @@ func RegisterRoutes(router *gin.Engine, services *service.Services) {
 		protected.GET("/reports/:id", reportHandler.Get)
 		protected.GET("/reports/:id/download", reportHandler.Download)
 		protected.GET("/reports/:id/preview", reportHandler.Preview)
+		protected.GET("/reports/:id/preview/*filepath", reportHandler.Preview)
 
 		protected.GET("/dashboard/summary", dashboardHandler.Summary)
 		protected.GET("/settings/p95-baseline", settingsHandler.GetP95)

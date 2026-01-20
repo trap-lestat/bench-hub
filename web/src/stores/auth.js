@@ -15,6 +15,7 @@ export const useAuthStore = defineStore('auth', () => {
   function clearToken() {
     token.value = ''
     localStorage.removeItem(tokenKey)
+    document.cookie = `${tokenKey}=; Max-Age=0; path=/`
   }
 
   return { token, isAuthenticated, setToken, clearToken }

@@ -20,6 +20,18 @@ type taskCreateRequest struct {
 	UsersCount      int    `json:"users_count" binding:"required"`
 	SpawnRate       int    `json:"spawn_rate" binding:"required"`
 	DurationSeconds int    `json:"duration_seconds" binding:"required"`
+	TargetHost      string `json:"target_host"`
+	JmeterTPM       *int   `json:"jmeter_tpm"`
+}
+
+type taskUpdateRequest struct {
+	Name            string `json:"name" binding:"required"`
+	ScriptID        string `json:"script_id" binding:"required"`
+	UsersCount      int    `json:"users_count" binding:"required"`
+	SpawnRate       int    `json:"spawn_rate" binding:"required"`
+	DurationSeconds int    `json:"duration_seconds" binding:"required"`
+	TargetHost      string `json:"target_host"`
+	JmeterTPM       *int   `json:"jmeter_tpm"`
 }
 
 func NewTaskHandler(tasks *service.TaskService, runner *service.TaskRunner) *TaskHandler {
@@ -73,9 +85,53 @@ func (h *TaskHandler) Create(c *gin.Context) {
 		model.JSON(c, http.StatusBadRequest, model.Fail(1000, "invalid params"))
 		return
 	}
+	if req.JmeterTPM != nil && *req.JmeterTPM <= 0 {
+		model.JSON(c, http.StatusBadRequest, model.Fail(1000, "invalid params"))
+		return
+	}
 
-	task, err := h.tasks.Create(c.Request.Context(), req.Name, req.ScriptID, req.UsersCount, req.SpawnRate, req.DurationSeconds)
+	var targetHost *string
+	if req.TargetHost != "" {
+		targetHost = &req.TargetHost
+	}
+
+	task, err := h.tasks.Create(c.Request.Context(), req.Name, req.ScriptID, req.UsersCount, req.SpawnRate, req.DurationSeconds, targetHost, req.JmeterTPM)
 	if err != nil {
+		model.JSON(c, http.StatusInternalServerError, model.Fail(9000, "internal error"))
+		return
+	}
+
+	model.JSON(c, http.StatusOK, model.OK(task))
+}
+
+func (h *TaskHandler) Update(c *gin.Context) {
+	id := c.Param("id")
+	var req taskUpdateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		model.JSON(c, http.StatusBadRequest, model.Fail(1000, "invalid params"))
+		return
+	}
+
+	if req.UsersCount <= 0 || req.SpawnRate <= 0 || req.DurationSeconds <= 0 {
+		model.JSON(c, http.StatusBadRequest, model.Fail(1000, "invalid params"))
+		return
+	}
+	if req.JmeterTPM != nil && *req.JmeterTPM <= 0 {
+		model.JSON(c, http.StatusBadRequest, model.Fail(1000, "invalid params"))
+		return
+	}
+
+	var targetHost *string
+	if req.TargetHost != "" {
+		targetHost = &req.TargetHost
+	}
+
+	task, err := h.tasks.Update(c.Request.Context(), id, req.Name, req.ScriptID, req.UsersCount, req.SpawnRate, req.DurationSeconds, targetHost, req.JmeterTPM)
+	if err != nil {
+		if err == service.ErrNotFound {
+			model.JSON(c, http.StatusNotFound, model.Fail(1003, "not found"))
+			return
+		}
 		model.JSON(c, http.StatusInternalServerError, model.Fail(9000, "internal error"))
 		return
 	}

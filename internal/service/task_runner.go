@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -33,6 +34,16 @@ type TaskRunner struct {
 type runningCommand struct {
 	cmd     *exec.Cmd
 	stopped bool
+}
+
+func pickTargetHost(input string, fallback *string) string {
+	if strings.TrimSpace(input) != "" {
+		return strings.TrimSpace(input)
+	}
+	if fallback != nil {
+		return strings.TrimSpace(*fallback)
+	}
+	return ""
 }
 
 func NewTaskRunner(tasks repository.TaskRepository, scripts repository.ScriptRepository, reports repository.ReportRepository, reportsDir, locustBin, locustHost, runnerURL string) *TaskRunner {
@@ -77,7 +88,7 @@ func (r *TaskRunner) Run(ctx context.Context, taskID, targetHost string) (*model
 		return nil, err
 	}
 
-	go r.execute(task, script, targetHost)
+	go r.execute(task, script, pickTargetHost(targetHost, task.TargetHost))
 
 	return task, nil
 }
@@ -210,7 +221,7 @@ func (r *TaskRunner) execute(task *model.Task, script *model.Script, targetHost 
 				})
 			}
 		}
-	} else if err := r.runLocust(task, script, targetHost); err != nil {
+	} else if err := r.runLocal(task, script, targetHost); err != nil {
 		if errors.Is(err, ErrStopped) {
 			status = TaskStatusStopped
 		} else {
@@ -230,6 +241,8 @@ type runnerRequest struct {
 	SpawnRate       int    `json:"spawn_rate"`
 	DurationSeconds int    `json:"duration_seconds"`
 	TargetHost      string `json:"target_host"`
+	JmeterTPM       *int   `json:"jmeter_tpm"`
+	ScriptType      string `json:"script_type"`
 	ScriptContent   string `json:"script_content"`
 }
 
@@ -253,6 +266,8 @@ func (r *TaskRunner) runRemote(task *model.Task, script *model.Script, targetHos
 		SpawnRate:       task.SpawnRate,
 		DurationSeconds: task.DurationSeconds,
 		TargetHost:      targetHost,
+		JmeterTPM:       task.JmeterTPM,
+		ScriptType:      script.Type,
 		ScriptContent:   script.Content,
 	}
 
@@ -277,6 +292,16 @@ func (r *TaskRunner) runRemote(task *model.Task, script *model.Script, targetHos
 	}
 
 	return out.Reports, out.Status, nil
+}
+
+func (r *TaskRunner) runLocal(task *model.Task, script *model.Script, targetHost string) error {
+	if script.Type == "" || script.Type == model.ScriptTypeLocust {
+		return r.runLocust(task, script, targetHost)
+	}
+	if script.Type == model.ScriptTypeJMeter {
+		return ErrUnsupportedEngine
+	}
+	return ErrInvalidScriptType
 }
 
 func (r *TaskRunner) runLocust(task *model.Task, script *model.Script, targetHost string) error {

@@ -3,6 +3,8 @@ package handlers
 import (
 	"io"
 	"net/http"
+	"path/filepath"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -17,12 +19,14 @@ type ScriptHandler struct {
 type scriptCreateRequest struct {
 	Name        string `json:"name" binding:"required"`
 	Description string `json:"description"`
+	Type        string `json:"type"`
 	Content     string `json:"content" binding:"required"`
 }
 
 type scriptUpdateRequest struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
+	Type        string `json:"type"`
 	Content     string `json:"content"`
 }
 
@@ -73,8 +77,12 @@ func (h *ScriptHandler) Create(c *gin.Context) {
 		return
 	}
 
-	script, err := h.scripts.Create(c.Request.Context(), req.Name, req.Description, req.Content)
+	script, err := h.scripts.Create(c.Request.Context(), req.Name, req.Description, req.Type, req.Content)
 	if err != nil {
+		if err == service.ErrInvalidScriptType {
+			model.JSON(c, http.StatusBadRequest, model.Fail(1000, "invalid params"))
+			return
+		}
 		model.JSON(c, http.StatusInternalServerError, model.Fail(9000, "internal error"))
 		return
 	}
@@ -90,10 +98,14 @@ func (h *ScriptHandler) Update(c *gin.Context) {
 		return
 	}
 
-	script, err := h.scripts.Update(c.Request.Context(), id, req.Name, req.Description, req.Content)
+	script, err := h.scripts.Update(c.Request.Context(), id, req.Name, req.Description, req.Type, req.Content)
 	if err != nil {
 		if err == service.ErrNotFound {
 			model.JSON(c, http.StatusNotFound, model.Fail(1003, "not found"))
+			return
+		}
+		if err == service.ErrInvalidScriptType {
+			model.JSON(c, http.StatusBadRequest, model.Fail(1000, "invalid params"))
 			return
 		}
 		model.JSON(c, http.StatusInternalServerError, model.Fail(9000, "internal error"))
@@ -117,6 +129,17 @@ func (h *ScriptHandler) Delete(c *gin.Context) {
 	model.JSON(c, http.StatusOK, model.OK(nil))
 }
 
+func scriptTypeFromFilename(name string) string {
+	switch strings.ToLower(filepath.Ext(name)) {
+	case ".jmx":
+		return model.ScriptTypeJMeter
+	case ".py":
+		return model.ScriptTypeLocust
+	default:
+		return ""
+	}
+}
+
 func (h *ScriptHandler) Import(c *gin.Context) {
 	name := c.PostForm("name")
 	if name == "" {
@@ -124,7 +147,7 @@ func (h *ScriptHandler) Import(c *gin.Context) {
 		return
 	}
 
-	file, _, err := c.Request.FormFile("file")
+	file, header, err := c.Request.FormFile("file")
 	if err != nil {
 		model.JSON(c, http.StatusBadRequest, model.Fail(1000, "invalid params"))
 		return
@@ -138,8 +161,17 @@ func (h *ScriptHandler) Import(c *gin.Context) {
 	}
 
 	description := c.PostForm("description")
-	script, err := h.scripts.Create(c.Request.Context(), name, description, string(data))
+	scriptType := c.PostForm("type")
+	if scriptType == "" {
+		scriptType = scriptTypeFromFilename(header.Filename)
+	}
+
+	script, err := h.scripts.Create(c.Request.Context(), name, description, scriptType, string(data))
 	if err != nil {
+		if err == service.ErrInvalidScriptType {
+			model.JSON(c, http.StatusBadRequest, model.Fail(1000, "invalid params"))
+			return
+		}
 		model.JSON(c, http.StatusInternalServerError, model.Fail(9000, "internal error"))
 		return
 	}

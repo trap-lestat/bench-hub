@@ -3,6 +3,8 @@ package handlers
 import (
 	"net/http"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -97,7 +99,14 @@ func (h *ReportHandler) Preview(c *gin.Context) {
 		return
 	}
 
-	path, ok := h.reports.ResolvePath(report.FilePath)
+	requested := strings.TrimPrefix(c.Param("filepath"), "/")
+	filePath := report.FilePath
+	if requested != "" {
+		baseDir := filepath.Dir(report.FilePath)
+		filePath = filepath.Join(baseDir, requested)
+	}
+
+	path, ok := h.reports.ResolvePath(filePath)
 	if !ok {
 		model.JSON(c, http.StatusBadRequest, model.Fail(1000, "invalid params"))
 		return

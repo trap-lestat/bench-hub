@@ -464,6 +464,33 @@ button {
   margin-top: 20px;
 }
 
+
+.filter-bar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 12px;
+}
+
+.tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  background: #f3f3f3;
+  color: #5f5f5f;
+}
+
+.tag.locust {
+  background: #e7f5ec;
+  color: #2f8a4e;
+}
+
+.tag.jmeter {
+  background: #e8f0fb;
+  color: #1f4f8a;
+}
+
 @keyframes rise {
   from {
     opacity: 0;

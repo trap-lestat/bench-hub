@@ -14,6 +14,13 @@
           <input v-model.trim="form.name" type="text" placeholder="login_flow" />
         </label>
         <label>
+          类型
+          <select v-model="form.type">
+            <option value="locust">Locust</option>
+            <option value="jmeter">JMeter</option>
+          </select>
+        </label>
+        <label>
           描述
           <input v-model.trim="form.description" type="text" placeholder="登录 + 列表" />
         </label>
@@ -31,7 +38,7 @@
 
       <div class="import-box">
         <label>
-          导入脚本（.py）
+          导入脚本（.py / .jmx）
           <input type="file" @change="handleFile" />
         </label>
         <button class="ghost" type="button" @click="importScript" :disabled="!importFile">导入</button>
@@ -43,6 +50,7 @@
           <thead>
             <tr>
               <th>名称</th>
+              <th>类型</th>
               <th>描述</th>
               <th>更新时间</th>
               <th>操作</th>
@@ -51,6 +59,7 @@
           <tbody>
             <tr v-for="script in scripts" :key="script.id">
               <td>{{ script.name }}</td>
+              <td>{{ script.type || 'locust' }}</td>
               <td>{{ script.description || '-' }}</td>
               <td>{{ formatDate(script.updated_at) }}</td>
               <td>
@@ -59,7 +68,7 @@
               </td>
             </tr>
             <tr v-if="scripts.length === 0">
-              <td colspan="4" class="empty">暂无脚本</td>
+              <td colspan="5" class="empty">暂无脚本</td>
             </tr>
           </tbody>
         </table>
@@ -81,6 +90,7 @@ const form = reactive({
   id: '',
   name: '',
   description: '',
+  type: 'locust',
   content: '',
 })
 
@@ -92,6 +102,7 @@ function resetForm() {
   form.id = ''
   form.name = ''
   form.description = ''
+  form.type = 'locust'
   form.content = ''
 }
 
@@ -117,12 +128,14 @@ async function submitScript() {
       await api.put(`/api/v1/scripts/${form.id}`, {
         name: form.name,
         description: form.description,
+        type: form.type,
         content: form.content,
       })
     } else {
       await api.post('/api/v1/scripts', {
         name: form.name,
         description: form.description,
+        type: form.type,
         content: form.content,
       })
     }
@@ -138,6 +151,7 @@ function editScript(script) {
   form.id = script.id
   form.name = script.name
   form.description = script.description || ''
+  form.type = script.type || 'locust'
   form.content = script.content || ''
 }
 
@@ -146,10 +160,18 @@ function handleFile(event) {
   importFile.value = file || null
 }
 
+function scriptTypeFromFilename(name) {
+  const lower = name.toLowerCase()
+  if (lower.endsWith('.jmx')) return 'jmeter'
+  return 'locust'
+}
+
 async function importScript() {
   if (!importFile.value) return
   const data = new FormData()
-  data.append('name', importFile.value.name.replace(/\.py$/, ''))
+  const filename = importFile.value.name
+  data.append('name', filename.replace(/\.(py|jmx)$/i, ''))
+  data.append('type', scriptTypeFromFilename(filename))
   data.append('file', importFile.value)
 
   try {

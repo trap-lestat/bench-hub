@@ -68,10 +68,12 @@ async function load() {
 
 async function previewReport(report) {
   try {
-    const response = await api.get(`/api/v1/reports/${report.id}/preview`, {
-      responseType: 'blob',
-    })
-    const url = URL.createObjectURL(response.data)
+    const token = localStorage.getItem('access_token')
+    if (token) {
+      document.cookie = `access_token=${encodeURIComponent(token)}; path=/; SameSite=Lax`
+    }
+    const base = window.location.origin
+    const url = `${base}/api/v1/reports/${report.id}/preview/?token=${encodeURIComponent(token || '')}`
     window.open(url, '_blank', 'noopener,noreferrer')
   } catch (err) {
     error.value = '无法预览报告'

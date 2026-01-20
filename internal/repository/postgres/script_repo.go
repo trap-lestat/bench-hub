@@ -25,10 +25,11 @@ func (r *ScriptRepo) Create(ctx context.Context, script *model.Script) error {
 	}
 
 	row := r.pool.QueryRow(ctx,
-		"INSERT INTO locust_scripts (id, name, description, content) VALUES ($1, $2, $3, $4) RETURNING created_at, updated_at",
+		"INSERT INTO locust_scripts (id, name, description, script_type, content) VALUES ($1, $2, $3, $4, $5) RETURNING created_at, updated_at",
 		script.ID,
 		script.Name,
 		script.Description,
+		script.Type,
 		script.Content,
 	)
 
@@ -38,10 +39,10 @@ func (r *ScriptRepo) Create(ctx context.Context, script *model.Script) error {
 func (r *ScriptRepo) GetByID(ctx context.Context, id string) (*model.Script, error) {
 	script := &model.Script{}
 	row := r.pool.QueryRow(ctx,
-		"SELECT id, name, description, content, created_at, updated_at FROM locust_scripts WHERE id = $1",
+		"SELECT id, name, description, script_type, content, created_at, updated_at FROM locust_scripts WHERE id = $1",
 		id,
 	)
-	if err := row.Scan(&script.ID, &script.Name, &script.Description, &script.Content, &script.CreatedAt, &script.UpdatedAt); err != nil {
+	if err := row.Scan(&script.ID, &script.Name, &script.Description, &script.Type, &script.Content, &script.CreatedAt, &script.UpdatedAt); err != nil {
 		if err == pgx.ErrNoRows {
 			return nil, repository.ErrNotFound
 		}
@@ -52,7 +53,7 @@ func (r *ScriptRepo) GetByID(ctx context.Context, id string) (*model.Script, err
 
 func (r *ScriptRepo) List(ctx context.Context, limit, offset int) ([]model.Script, error) {
 	rows, err := r.pool.Query(ctx,
-		"SELECT id, name, description, content, created_at, updated_at FROM locust_scripts ORDER BY created_at DESC LIMIT $1 OFFSET $2",
+		"SELECT id, name, description, script_type, content, created_at, updated_at FROM locust_scripts ORDER BY created_at DESC LIMIT $1 OFFSET $2",
 		limit,
 		offset,
 	)
@@ -64,7 +65,7 @@ func (r *ScriptRepo) List(ctx context.Context, limit, offset int) ([]model.Scrip
 	var scripts []model.Script
 	for rows.Next() {
 		var script model.Script
-		if err := rows.Scan(&script.ID, &script.Name, &script.Description, &script.Content, &script.CreatedAt, &script.UpdatedAt); err != nil {
+		if err := rows.Scan(&script.ID, &script.Name, &script.Description, &script.Type, &script.Content, &script.CreatedAt, &script.UpdatedAt); err != nil {
 			return nil, err
 		}
 		scripts = append(scripts, script)
@@ -74,9 +75,10 @@ func (r *ScriptRepo) List(ctx context.Context, limit, offset int) ([]model.Scrip
 
 func (r *ScriptRepo) Update(ctx context.Context, script *model.Script) error {
 	row := r.pool.QueryRow(ctx,
-		"UPDATE locust_scripts SET name = $1, description = $2, content = $3, updated_at = NOW() WHERE id = $4 RETURNING updated_at",
+		"UPDATE locust_scripts SET name = $1, description = $2, script_type = $3, content = $4, updated_at = NOW() WHERE id = $5 RETURNING updated_at",
 		script.Name,
 		script.Description,
+		script.Type,
 		script.Content,
 		script.ID,
 	)
